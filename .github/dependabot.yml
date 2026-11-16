@@ -1,0 +1,20 @@
+# Looks for newer versions of everything the apps are built with, every day.
+# All updates of a kind arrive in one pull request. CI builds and tests it;
+# merging it into main publishes a new release.
+version: 2
+updates:
+  - package-ecosystem: gradle
+    directory: /
+    schedule:
+      interval: daily
+    groups:
+      gradle:
+        patterns: ["*"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: daily
+    groups:
+      actions:
+        patterns: ["*"]
