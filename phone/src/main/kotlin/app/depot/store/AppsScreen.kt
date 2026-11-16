@@ -34,6 +34,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -66,6 +67,8 @@ import app.depot.core.Busy
 import app.depot.core.RepoEntry
 import app.depot.core.Status
 import app.depot.core.Target
+import app.depot.core.WatchApp
+import app.depot.core.WatchLink
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -79,15 +82,26 @@ fun AppsScreen(app: DepotApp, onOpenSettings: () -> Unit) {
     val refreshing by depot.refreshing.collectAsStateWithLifecycle()
     val configVersion by depot.configVersion.collectAsStateWithLifecycle()
     val hasToken = remember(configVersion) { depot.hasToken }
+    val watchLink by app.watch.link.collectAsStateWithLifecycle()
+    val watchState by app.watch.state.collectAsStateWithLifecycle()
+    val watchRequests by app.watch.requests.collectAsStateWithLifecycle()
+    val shareWithWatch = remember(configVersion) { depot.settings.syncToWatch }
     var adding by remember { mutableStateOf(false) }
     var needPermission by remember { mutableStateOf(false) }
 
     // Picks up installs and uninstalls that happened while the store was in the background.
     LifecycleResumeEffect(Unit) {
         depot.publish()
+        // The watch may have come into range, or gone, while the store was in the background.
+        app.watch.refresh()
         onPauseOrDispose {}
     }
-    LaunchedEffect(configVersion) { if (depot.hasToken) app.scope.launch { depot.refresh() } }
+    fun refresh() {
+        app.scope.launch { depot.refresh() }
+        // Also starts the watch app if it is not running, so its state here is current.
+        app.watch.check()
+    }
+    LaunchedEffect(configVersion) { if (depot.hasToken) refresh() }
 
     fun install(keys: List<String>) {
         if (!depot.canInstallPackages()) {
@@ -105,7 +119,7 @@ fun AppsScreen(app: DepotApp, onOpenSettings: () -> Unit) {
                     if (refreshing) {
                         CircularProgressIndicator(Modifier.padding(12.dp).size(24.dp), strokeWidth = 2.dp)
                     } else {
-                        IconButton(onClick = { app.scope.launch { depot.refresh() } }, enabled = hasToken) {
+                        IconButton(onClick = { refresh() }, enabled = hasToken) {
                             Icon(Icons.Default.Refresh, contentDescription = "Check for updates")
                         }
                     }
@@ -162,8 +176,15 @@ fun AppsScreen(app: DepotApp, onOpenSettings: () -> Unit) {
                         }
                     }
                     items(apps, key = { it.repo.key }) { state ->
+                        val onWatch = watchState?.app(state.repo.key)
                         AppCard(
                             state = state,
+                            watch = if (WatchLink.hasWatchApp(state.repo, state.release, onWatch)) {
+                                WatchRow(onWatch, watchLink, watchRequests[state.repo.key], shareWithWatch)
+                            } else {
+                                null
+                            },
+                            onWatchInstall = { app.watch.install(state.repo.key) },
                             onInstall = { install(listOf(state.repo.key)) },
                             onOpen = {
                                 state.packageName?.let { depot.launchIntent(it) }?.let { activity.startActivity(it) }
@@ -211,6 +232,8 @@ private fun Message(padding: PaddingValues, title: String, body: String, action:
 @Composable
 private fun AppCard(
     state: AppState,
+    watch: WatchRow?,
+    onWatchInstall: () -> Unit,
     onInstall: () -> Unit,
     onOpen: () -> Unit,
     canOpen: Boolean,
@@ -267,13 +290,17 @@ private fun AppCard(
             }
 
             Column(Modifier.padding(end = 12.dp)) {
-                Text(statusLine(state), style = MaterialTheme.typography.bodyMedium)
-                state.error?.let {
-                    Spacer(Modifier.height(4.dp))
-                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                // A watch-only app has nothing to say about this phone; its watch section is the whole card.
+                val phonePart = state.status != Status.OtherDevice || watch == null
+                if (phonePart) {
+                    Text(statusLine(state), style = MaterialTheme.typography.bodyMedium)
+                    state.error?.let {
+                        Spacer(Modifier.height(4.dp))
+                        Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                    }
+                    Spacer(Modifier.height(12.dp))
                 }
-                Spacer(Modifier.height(12.dp))
-                when (val busy = state.busy) {
+                when (val busy = if (phonePart) state.busy else null) {
                     is Busy.Downloading -> {
                         LinearProgressIndicator(progress = { busy.fraction }, modifier = Modifier.fillMaxWidth())
                         Caption("Downloading ${(busy.fraction * 100).toInt()}%")
@@ -292,6 +319,10 @@ private fun AppCard(
                         Status.UpToDate -> if (canOpen) OutlinedButton(onClick = onOpen) { Text("Open") }
                         else -> {}
                     }
+                }
+                if (watch != null) {
+                    if (phonePart) HorizontalDivider(Modifier.padding(vertical = 12.dp))
+                    WatchSection(watch, onWatchInstall)
                 }
             }
         }
@@ -324,6 +355,101 @@ private fun AppCard(
             confirmButton = { TextButton(onClick = { confirmRemove = false; onRemove() }) { Text("Remove") } },
             dismissButton = { TextButton(onClick = { confirmRemove = false }) { Text("Cancel") } },
         )
+    }
+}
+
+/** What the card shows about the watch. [app] is null until the watch has reported this repository. */
+private data class WatchRow(
+    val app: WatchApp?,
+    val link: WatchLinkState,
+    val request: WatchRequest?,
+    val shareOn: Boolean,
+)
+
+@Composable
+private fun WatchSection(row: WatchRow, onInstall: () -> Unit) {
+    val connected = row.link == WatchLinkState.CONNECTED
+    val notConnected = when (row.link) {
+        WatchLinkState.CONNECTED -> null
+        WatchLinkState.NO_APP ->
+            "The connected watch has no Depot, or an older one. Install the newest Depot on the watch."
+        WatchLinkState.NO_WATCH -> "No watch connected. Bring the watch in range to install from here."
+    }
+    Text("Watch", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+    Spacer(Modifier.height(4.dp))
+
+    val app = row.app
+    if (app == null) {
+        Text(
+            when {
+                notConnected != null -> notConnected
+                !row.shareOn -> "Turn on \"Share with watch\" in Settings so the watch knows about this repository."
+                else -> "Waiting for the watch"
+            },
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        return
+    }
+
+    Text(watchStatusLine(app), style = MaterialTheme.typography.bodyMedium)
+    val busy = app.busy
+    // The watch's own progress is newer than anything this phone remembers about its request.
+    val error = if (busy != null) null else (row.request as? WatchRequest.Failed)?.message ?: app.error
+    error?.let {
+        Spacer(Modifier.height(4.dp))
+        Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+    }
+    Spacer(Modifier.height(12.dp))
+    when {
+        busy is Busy.Downloading -> {
+            LinearProgressIndicator(progress = { busy.fraction }, modifier = Modifier.fillMaxWidth())
+            Caption("Downloading on the watch ${WatchLink.percent(busy)}%")
+        }
+        // Android decides whether to ask. Until the tap, the install is neither running nor failed.
+        app.needsUser -> {
+            LinearProgressIndicator(Modifier.fillMaxWidth())
+            Caption("Confirm on your watch")
+        }
+        busy == Busy.Installing -> {
+            LinearProgressIndicator(Modifier.fillMaxWidth())
+            Caption("Installing on the watch")
+        }
+        busy == Busy.Checking -> {
+            LinearProgressIndicator(Modifier.fillMaxWidth())
+            Caption("Checking")
+        }
+        row.request == WatchRequest.Sending -> {
+            LinearProgressIndicator(Modifier.fillMaxWidth())
+            Caption("Sending to the watch")
+        }
+    }
+    if (busy == null && row.request != WatchRequest.Sending) {
+        val label = when (app.status) {
+            Status.NotInstalled -> "Install on watch"
+            Status.UpdateAvailable -> "Update on watch"
+            else -> null
+        }
+        if (label != null) {
+            // Still offered while a confirmation is open, in case its notification was swiped away.
+            if (app.needsUser) Spacer(Modifier.height(12.dp))
+            OutlinedButton(onClick = onInstall, enabled = connected) { Text(label) }
+            notConnected?.let { Caption(it) }
+        }
+    }
+}
+
+private fun watchStatusLine(app: WatchApp): String {
+    val latest = app.latestTag
+    val installed = app.installedVersion
+    return when (app.status) {
+        Status.Unknown -> "Not checked yet"
+        Status.NoRelease -> "This repository has no published release yet"
+        Status.NoAsset -> "Release ${latest.orEmpty()} has no APK for the watch"
+        Status.OtherDevice -> "Set to install on the phone only"
+        Status.NotInstalled -> if (latest != null) "Not installed · latest $latest" else "Not installed"
+        Status.UpdateAvailable -> "Installed ${installed.orEmpty()} · ${latest.orEmpty()} available"
+        Status.UpToDate -> if (installed != null) "Up to date · $installed" else "Up to date"
     }
 }
 

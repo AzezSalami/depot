@@ -56,6 +56,28 @@ Depot checks about every six hours and notifies you. With "Install updates autom
 Android 12+ applies updates silently for apps that Depot itself installed; the first install of
 each app always asks you to confirm.
 
+## Watch apps from the phone
+
+Every repository that has a watch APK gets a **Watch** section on its card in the phone app. It
+shows what the watch has installed and offers **Install on watch** or **Update on watch**, with
+the download progress and any error from the watch.
+
+- The phone only sends a small command. The watch downloads the APK itself, with the token it got
+  through "Share with watch", so that setting must be on.
+- **Confirm on your watch** means Android is waiting for a tap on the watch. The first install of
+  an app always needs one. Updates of apps Depot installed are silent on Wear OS 4 and newer
+  (Android 12+); Wear OS 3 asks every time. If Depot is not open on the watch, the question is a
+  "Confirm install" notification there, so allow notifications for Depot on the watch.
+- With no watch in range the buttons are disabled and the card says so. "Waiting for the watch"
+  means the watch has not reported yet; the refresh button asks it again.
+- The phone and the watch both need a Depot version that has this feature.
+
+How it works: the watch writes its state to the Wear OS data item `/depot/watch-state`, the phone
+sends `install` and `check` commands as messages on `/depot/command` to watches that declare the
+`depot_watch` capability, and settings still travel in the `/depot/config` data item.
+
+## Updating Depot itself
+
 Depot can update itself: publish `depot-phone.apk` and `depot-wear.apk` as a release of the
 repository you keep this code in, and add that repository in Depot.
 

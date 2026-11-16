@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Advertises this app to the phone, which only sends commands to nodes with this capability.
+     Nothing in the code refers to the array, so tools:keep stops resource shrinking from removing it.
+     The name must match WatchLink.CAPABILITY. -->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@array/android_wear_capabilities">
+    <string-array name="android_wear_capabilities" translatable="false">
+        <item>depot_watch</item>
+    </string-array>
+</resources>

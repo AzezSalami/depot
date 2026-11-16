@@ -76,4 +76,6 @@ data class AppState(
     val status: Status,
     val busy: Busy? = null,
     val error: String? = null,
+    /** Android asked the user to confirm the install and has not had an answer yet. */
+    val needsUser: Boolean = false,
 )

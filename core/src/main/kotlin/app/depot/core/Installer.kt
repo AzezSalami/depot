@@ -94,9 +94,18 @@ class InstallReceiver : BroadcastReceiver() {
                 val confirm = intent.getParcelableExtra<Intent>(Intent.EXTRA_INTENT) ?: return
                 confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 val started = depot.foreground && runCatching { context.startActivity(confirm) }.isSuccess
-                if (!started) {
-                    Notifier.confirmInstall(context, sessionId, label, confirm)
+                if (started) {
+                    depot.awaitingUser(key)
+                } else if (Notifier.confirmInstall(context, sessionId, label, confirm)) {
+                    depot.awaitingUser(key)
                     waiter?.complete(InstallResult.NeedsUser)
+                } else {
+                    // Nothing on screen and no notification: say so instead of waiting for a tap that
+                    // cannot happen. The phone shows this text for installs it started on the watch.
+                    val device = if (depot.variant == Variant.WEAR) "watch" else "phone"
+                    val message = "Android wants you to confirm this install, but notifications for Depot are " +
+                        "off on the $device. Open Depot on the $device and install it from there."
+                    waiter?.complete(InstallResult.Failure(message)) ?: depot.reportError(key, message)
                 }
             }
 

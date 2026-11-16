@@ -39,6 +39,7 @@ class Depot private constructor(private val app: Application, val variant: Varia
     private val busy = ConcurrentHashMap<String, Busy>()
     private val errors = ConcurrentHashMap<String, String>()
     private val checked = ConcurrentHashMap.newKeySet<String>()
+    private val needsUser = ConcurrentHashMap.newKeySet<String>()
     private val installLock = Mutex()
     private val refreshLock = Mutex()
 
@@ -92,6 +93,7 @@ class Depot private constructor(private val app: Application, val variant: Varia
     fun removeRepo(key: String) {
         settings.repos = settings.repos.filterNot { it.key == key }
         settings.forget(key)
+        needsUser.remove(key)
         errors.remove(key)
         checked.remove(key)
         configChanged()
@@ -156,6 +158,7 @@ class Depot private constructor(private val app: Application, val variant: Varia
                 status = status,
                 busy = busy[repo.key],
                 error = errors[repo.key],
+                needsUser = repo.key in needsUser,
             )
         }
     }
@@ -167,6 +170,7 @@ class Depot private constructor(private val app: Application, val variant: Varia
         if (key.isEmpty()) return
         val old = settings.record(key)
         settings.setRecord(key, InstallRecord(packageName ?: old.packageName, label ?: old.label, assetId))
+        needsUser.remove(key)
         errors.remove(key)
         publish()
     }
@@ -174,6 +178,14 @@ class Depot private constructor(private val app: Application, val variant: Varia
     internal fun reportError(key: String, message: String) {
         if (key.isEmpty()) return
         errors[key] = message
+        needsUser.remove(key)
+        publish()
+    }
+
+    /** Android is showing, or has a notification for, its confirmation of this app's install. */
+    internal fun awaitingUser(key: String) {
+        if (key.isEmpty()) return
+        needsUser += key
         publish()
     }
 
@@ -221,6 +233,7 @@ class Depot private constructor(private val app: Application, val variant: Varia
             ?: return InstallResult.Failure("Unknown app")
         if (queued.asset == null) return InstallResult.Failure("No APK for this device in the release")
         errors.remove(key)
+        needsUser.remove(key)
         busy[key] = Busy.Downloading(0f)
         publish()
         return installLock.withLock {
@@ -231,6 +244,8 @@ class Depot private constructor(private val app: Application, val variant: Varia
             }
             busy.remove(key)
             if (result is InstallResult.Failure) errors[key] = result.message
+            // NeedsUser leaves the question open: the answer arrives later through InstallReceiver.
+            if (result !is InstallResult.NeedsUser) needsUser.remove(key)
             publish()
             result
         }

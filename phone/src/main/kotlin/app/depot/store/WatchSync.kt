@@ -3,6 +3,7 @@ package app.depot.store
 import android.content.Context
 import android.net.Uri
 import app.depot.core.Settings
+import app.depot.core.WatchLink
 import com.google.android.gms.tasks.Tasks
 import com.google.android.gms.wearable.PutDataMapRequest
 import com.google.android.gms.wearable.Wearable
@@ -13,7 +14,7 @@ import java.util.concurrent.TimeUnit
  * has to be typed on the watch. All functions block; call them off the main thread.
  */
 object WatchSync {
-    const val PATH = "/depot/config"
+    const val PATH = WatchLink.CONFIG_PATH
 
     /** Returns null on success, otherwise a message for the user. */
     fun push(context: Context, settings: Settings): String? = try {

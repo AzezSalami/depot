@@ -35,6 +35,14 @@
                     android:pathPrefix="/depot/config"
                     android:scheme="wear" />
             </intent-filter>
+            <!-- Install and "check now" commands from the phone app. -->
+            <intent-filter>
+                <action android:name="com.google.android.gms.wearable.MESSAGE_RECEIVED" />
+                <data
+                    android:host="*"
+                    android:pathPrefix="/depot/command"
+                    android:scheme="wear" />
+            </intent-filter>
         </service>
     </application>
 </manifest>

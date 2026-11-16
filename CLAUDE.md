@@ -13,9 +13,13 @@ user-facing setup.
   - `Settings.kt` – SharedPreferences storage; the token is encrypted with an Android Keystore key.
   - `Installer.kt` – `PackageInstaller` sessions and `InstallReceiver` for their results.
   - `Depot.kt` – the singleton that ties it together and exposes `StateFlow`s to the UIs.
+  - `WatchLink.kt` – data layer paths, the capability name, and the pure Kotlin encoding of what the
+    phone and watch send each other (`WatchState`, `WatchCommand`).
   - `UpdateWorker.kt` – WorkManager job, every 6 hours. `Notifier.kt` – notifications.
-- `phone/` – Compose Material 3 app. `AppsScreen.kt`, `SettingsScreen.kt`, `WatchSync.kt`.
-- `wear/` – Wear Compose app. `MainActivity.kt` (whole UI), `ConfigService.kt` (receives settings).
+- `phone/` – Compose Material 3 app. `AppsScreen.kt`, `SettingsScreen.kt`, `WatchSync.kt` (sends
+  settings), `WatchRemote.kt` (reads the watch's state, sends it commands).
+- `wear/` – Wear Compose app. `MainActivity.kt` (whole UI), `ConfigService.kt` (receives settings
+  and commands), `StateReporter.kt` (writes the watch's state), `DepotWearApp.kt` (runs commands).
 - `app-common.gradle.kts` – reads signing settings for both apps.
 
 ## Commands
@@ -53,6 +57,32 @@ a change could not be checked on a device.
   JVM (`CoreTest`, `GitHubTest` with MockWebServer).
 - Wrap `Tasks.await` calls (data layer) in try/catch and keep them off the main thread; phones
   without Play services must still work.
+
+## Phone and watch
+
+Everything between the two apps goes over the Wear OS data layer. Names and encoding live in
+`core/.../WatchLink.kt`; the manifest filters in `wear/` and `wear.xml` repeat them as text.
+
+| What | Kind | Written by | Content |
+|---|---|---|---|
+| `/depot/config` | data item | phone (`WatchSync`) | token, repository list, auto-install |
+| `/depot/watch-state` | data item | watch (`StateReporter`) | `WatchState` as JSON in `state`, plus `stamp` |
+| `/depot/command` | message | phone (`WatchRemote`) | `WatchCommand` as JSON: `install` (repo key) or `check` |
+| `depot_watch` | capability | watch (`res/values/wear.xml`) | marks nodes that take commands |
+
+- The watch downloads and installs with its own token. Never send an APK or the token in a
+  message; the token only travels in `/depot/config`.
+- A command starts the watch process if needed (`ConfigService.onMessageReceived`) and is run by
+  `DepotWearApp.handle` on the application scope, never on an activity or composition scope.
+- The watch repeats a command's `id` as `ack` in its next state. The phone shows "Sending" until
+  then, and treats 45 seconds without it as "the watch did not answer".
+- `StateReporter` writes on every change of `Depot.apps`, but a change that is only download
+  progress waits until a second has passed since the last write.
+- Android decides whether an install needs a tap. `InstallReceiver` sets `AppState.needsUser` when
+  it does, and the phone shows "Confirm on your watch". That is a state, not an error.
+- Phone and watch can be on different versions. Only add fields to the JSON; decoding must keep
+  ignoring unknown fields and commands and filling in missing ones (`WatchLinkTest`).
+- `wear.xml` needs `tools:keep`, or resource shrinking removes the capability from release builds.
 
 ## How updates are detected
 

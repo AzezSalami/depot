@@ -57,8 +57,9 @@ object Notifier {
     }
 
     @Suppress("MissingPermission")
-    fun confirmInstall(context: Context, sessionId: Int, label: String, confirm: Intent) {
-        if (!allowed(context)) return
+    /** Returns false if the notification cannot be shown because the user has not allowed them. */
+    fun confirmInstall(context: Context, sessionId: Int, label: String, confirm: Intent): Boolean {
+        if (!allowed(context) || !NotificationManagerCompat.from(context).areNotificationsEnabled()) return false
         val pi = PendingIntent.getActivity(
             context, sessionId, confirm, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
@@ -70,6 +71,7 @@ object Notifier {
             .setAutoCancel(true)
             .build()
         NotificationManagerCompat.from(context).notify(ID_CONFIRM_BASE + sessionId, n)
+        return true
     }
 
     fun cancelConfirm(context: Context, sessionId: Int) =
