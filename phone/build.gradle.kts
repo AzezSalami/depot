@@ -48,9 +48,9 @@ dependencies {
     implementation(project(":core"))
     implementation("androidx.activity:activity-compose:1.10.1")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
-    implementation("com.google.android.gms:play-services-wearable:19.0.0")
+    implementation("com.google.android.gms:play-services-wearable:20.0.1")
     // play-services pulls in an old Fragment that breaks permission requests; pin a fixed one.
-    implementation("androidx.fragment:fragment:1.8.6")
+    implementation("androidx.fragment:fragment:1.9.1")
     implementation(platform("androidx.compose:compose-bom:2025.04.01"))
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-core")
